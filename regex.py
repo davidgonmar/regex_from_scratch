@@ -96,7 +96,7 @@ class NFA:
         new_nfa = self.copy()
         old_start = new_nfa.start
         new_nfa.start = start_and_accept
-
+        new_nfa.add_state(start_and_accept)
         new_nfa.add_transition(new_nfa.start, old_start, EPSILON)
         for accept in new_nfa.accept:
             new_nfa.add_transition(accept, new_nfa.start, EPSILON)
@@ -109,29 +109,23 @@ class NFA:
         import networkx as nx
 
         G = nx.DiGraph()
-
         for state in self.states:
-            if state == self.start:
-                G.add_node(
-                    str(state) + "<start>",
-                    shape="circle",
-                    color="green",
-                    style="filled",
-                )
+            name, color, shape = str(state), "blue", "circle"
+            if state == self.start and state in self.accept:
+                name += "<start><accept>"
+                color = "yellow"
+            elif state == self.start:
+                name += "<start>"
+                color = "red"
             elif state in self.accept:
-                G.add_node(
-                    str(state) + "<accept>", shape="circle", color="red", style="filled"
-                )
-            else:
-                G.add_node(state, shape="circle", color="blue", style="filled")
+                name += "<accept>"
+                color = "green"
+
+            G.add_node(state, label=name, color=color, shape=shape)
 
         for src, transitions in self.trasitions.items():
             for symbol, dest_states in transitions.items():
                 for dest in dest_states:
-                    src = str(src) + "<start>" if src == self.start else src
-                    src = str(src) + "<accept>" if src in self.accept else src
-                    dest = str(dest) + "<start>" if dest == self.start else dest
-                    dest = str(dest) + "<accept>" if dest in self.accept else dest
                     symbol = symbol if symbol != EPSILON else "ε"
                     G.add_edge(src, dest, label=symbol)
 
@@ -165,25 +159,70 @@ class State(object):
 
 def compile_regex(regex: str) -> NFA:
     # ASSUME no special chars (only regex like abc)
-    def parse_concat(string: str):
-        s0 = string[0]
-        rest = string[1:]
-        start = State()
-        accept = State()
-        nfa = NFA({start, accept}, start)  # nfa that accepts only s0
-        nfa.add_transition(start, accept, s0)
-        nfa.add_accept(accept)
-        if rest:
-            ret = nfa.concat(parse_concat(rest))
+
+    index = 0
+
+    def parse_single():
+        nonlocal index
+        if index >= len(regex):
+            raise ValueError("Unexpected end of regex")
+        symbol = regex[index]
+        index += 1
+        if symbol == "(":  # handle parenthesis
+            nfa = parse_concat(regex)
+            if index >= len(regex) or regex[index] != ")":
+                raise ValueError("Expected closing parenthesis, but got end of regex")
+            index += 1
         else:
-            ret = nfa
-        return ret
+            state1 = State()
+            state2 = State()
+            nfa = NFA({state1, state2}, state1)
+            nfa.add_transition(state1, state2, symbol)
+            nfa.add_accept(state2)
+
+        # if there is a star after the symbol, apply the star operation
+        if index < len(regex) and regex[index] == "*":
+            index += 1
+            nfa = nfa.star()
+        return nfa
+
+    def parse_concat(regex: str) -> NFA:
+        nfa = parse_single()
+        while index < len(regex) and regex[index] not in "|)":
+            nfa = nfa.concat(parse_single())
+        return nfa
 
     return parse_concat(regex)
 
 
 if __name__ == "__main__":
-    nfa = compile_regex("abc")
-    nfa.vizualize()
-    assert nfa.match("abc")
-    assert not nfa.match("ab")
+
+    def test_simple():
+        nfa = compile_regex("abc")
+        assert nfa.match("abc")
+        assert not nfa.match("ab")
+
+    def test_star():
+        nfa = compile_regex("a*")
+        assert nfa.match("a")
+        assert nfa.match("aa")
+        assert nfa.match("")
+
+        nfa = compile_regex("a*b")
+        assert nfa.match("b")
+        assert nfa.match("ab")
+        assert nfa.match("aab")
+        assert nfa.match("aaab")
+
+    def test_star_and_parenthesis():
+        nfa = compile_regex("(ab)*")
+        nfa.vizualize()
+        assert nfa.match("")
+        assert nfa.match("ab")
+        assert nfa.match("abab")
+        assert nfa.match("ababab")
+        assert not nfa.match("a")
+
+    test_simple()
+    test_star()
+    test_star_and_parenthesis()
