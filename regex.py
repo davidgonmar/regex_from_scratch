@@ -104,6 +104,12 @@ class NFA:
 
         return new_nfa
 
+    def is_start(self, state: NFAState) -> bool:
+        return state == self.start
+
+    def is_accept(self, state: NFAState) -> bool:
+        return state in self.accept
+
     def vizualize(self):
         import matplotlib.pyplot as plt
         import networkx as nx
